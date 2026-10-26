@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Miku Search Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="icon" href="data:,">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; user-select: none; }
+    body, html { width: 100vw; height: 100vh; background-color: #08080a; color: #ffffff; overflow: hidden; }
+
+    .app-container { width: 100%; height: 100%; position: relative; display: flex; flex-direction: column; }
+    
+    /* 🖼️ Фоновое изображение через тег src */
+    .bg-img-container {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; overflow: hidden;
+    }
+    .bg-img-container img {
+      width: 100%; height: 100%; object-fit: cover; filter: blur(20px) brightness(0.35); transform: scale(1.1);
+    }
+
+    /* ⚡ Ускоренные переходы для мгновенного отклика */
+    .screen {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; flex-direction: column; padding: 24px 20px 100px 20px;
+      z-index: 1; overflow-y: auto; opacity: 0; pointer-events: none;
+      transform: scale(0.98) translateY(6px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .screen.active { opacity: 1; pointer-events: auto; transform: scale(1) translateY(0); }
+
+    #screen-splash {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 200;
+      background: #000; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 50px 20px;
+      transition: opacity 0.3s ease;
+    }
+    #screen-splash img.splash-bg {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: 0.7;
+    }
+    .loader-container { width: 100%; max-width: 260px; height: 6px; background: rgba(255, 255, 255, 0.15); border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+    .loader-bar { width: 0%; height: 100%; background: #38bdf8; box-shadow: 0 0 12px #38bdf8; }
+
+    .sub-gate-overlay {
+      position: absolute; inset: 0; background: rgba(8, 8, 10, 0.95); backdrop-filter: blur(15px); z-index: 500;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center;
+    }
+
+    .top-app-title { font-size: 22px; font-weight: 900; text-align: center; letter-spacing: 2px; margin-bottom: 15px; text-transform: uppercase; }
+
+    .slider-wrapper { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; width: 100%; touch-action: pan-y; }
+    .slider-dots { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .slider-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background 0.3s, transform 0.3s; cursor: pointer; }
+    .slider-dot.active { background: #38bdf8; transform: scale(1.4); }
+
+    .promo-slider {
+      flex: 1; aspect-ratio: 16 / 9; border-radius: 20px; overflow: hidden; position: relative;
+      background: rgba(25, 25, 35, 0.8); border: 1px solid rgba(255,255,255,0.12);
+    }
+    .slides-track { display: flex; width: 300%; height: 100%; transition: transform 0.3s ease; }
+    .slide-item { width: 33.3333%; height: 100%; position: relative; }
+    .slide-item img { width: 100%; height: 100%; object-fit: cover; }
+
+    .rainbow-title {
+      background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #00ffff, #0000ff, #8b00ff);
+      background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      animation: rainbowGlow 4s ease infinite; font-weight: 900; font-size: 18px; text-align: center;
+    }
+    @keyframes rainbowGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+
+    .grid-container { display: flex; flex-direction: column; gap: 14px; }
+    .card {
+      background: rgba(20, 20, 28, 0.7); border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(16px); border-radius: 20px; color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.1s ease, background 0.15s ease;
+    }
+    .card:active { transform: scale(0.97); background: rgba(35, 35, 48, 0.9); }
+    .card-large { width: 100%; height: 95px; font-size: 18px; font-weight: 800; display: flex; gap: 10px; }
+    .grid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .card-square { height: 95px; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 600; color: #d1d5db; }
+
+    .dock-bar-wrapper {
+      position: absolute; bottom: 24px; left: 0; right: 0; display: flex; justify-content: center; z-index: 100;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    .dock-bar-wrapper.hidden { transform: translateY(90px); opacity: 0; pointer-events: none; }
+    .dock-bar {
+      width: calc(100% - 40px); max-width: 360px; height: 62px;
+      background: rgba(18, 18, 24, 0.85); backdrop-filter: blur(25px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 32px;
+      display: flex; justify-content: space-around; align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+    .dock-item {
+      background: none; border: none; color: #6b7280;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 10px; font-weight: 600; cursor: pointer; transition: color 0.2s ease, transform 0.15s ease;
+    }
+    .dock-item.active { color: #ffffff; transform: translateY(-2px); }
+    .mono-icon { width: 20px; height: 20px; fill: currentColor; flex-shrink: 0; }
+
+    .screen-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .btn-back {
+      background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #ffffff; padding: 8px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+
+    .gen-center-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 30px 0; }
+    .username-box {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(255, 255, 255, 0.05); padding: 14px 20px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .generated-username { font-size: 26px; font-weight: 900; color: #ffffff; word-break: break-all; }
+    .status-badge { padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; }
+    .status-badge.free { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); }
+
+    .btn-main { width: 100%; height: 48px; border-radius: 14px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 8px; transition: transform 0.1s; }
+    .btn-main:active { transform: scale(0.97); }
+    .btn-dark-solid { background: #272733; color: white; border: 1px solid rgba(255,255,255,0.12); }
+    .btn-dark-subtle { background: rgba(255, 255, 255, 0.06); color: #d1d5db; border: 1px solid rgba(255,255,255,0.08); }
+    .btn-success { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); pointer-events: none; }
+    .btn-danger { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+    .profile-header-area { position: relative; display: flex; flex-direction: column; align-items: center; margin-top: 10px; margin-bottom: 20px; }
+    .profile-avatar-container {
+      width: 90px; height: 90px; border-radius: 50%; border: 3px solid #818cf8;
+      box-shadow: 0 0 25px rgba(129, 140, 248, 0.3); position: relative; overflow: hidden;
+      background: linear-gradient(135deg, #fbbf24, #f59e0b); display: flex; align-items: center; justify-content: center;
+    }
+    .profile-avatar-img { width: 100%; height: 100%; object-fit: cover; display: none; }
+    .profile-avatar-letter { font-size: 38px; font-weight: 900; color: #ffffff; }
+    .profile-username { margin-top: 10px; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; }
+    .profile-user-id { margin-top: 2px; font-size: 12px; font-weight: 600; color: #9ca3af; }
+
+    .btn-admin-gear {
+      position: absolute; right: 10px; top: 10px; width: 42px; height: 42px; border-radius: 12px;
+      background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
+      display: none; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; z-index: 10;
+    }
+
+    .profile-buttons-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; margin-bottom: 14px; }
+    .profile-square-btn {
+      height: 100px; background: rgba(25, 25, 35, 0.7); border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px; backdrop-filter: blur(16px); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px; cursor: pointer; color: white; text-decoration: none;
+    }
+
+    .feedback-banner-btn {
+      width: 100%; height: 60px; background: rgba(20, 20, 28, 0.75); border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 18px; display: flex; align-items: center; justify-content: center; gap: 10px;
+      font-weight: 800; font-size: 14px; cursor: pointer; backdrop-filter: blur(12px); color: #fff;
+    }
+
+    .modal-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
+      z-index: 350; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+      opacity: 0; pointer-events: none; transform: scale(1.05);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; transform: scale(1); }
+    
+    .modal-box {
+      width: 100%; max-width: 360px; background: #181824; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 24px; padding: 22px; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto;
+    }
+    .modal-textarea, .admin-input, .admin-select {
+      width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; color: white; padding: 12px; font-size: 14px; outline: none; margin-bottom: 10px;
+    }
+    .admin-input { height: 42px; }
+
+    .wheel-container { position: relative; width: 280px; height: 280px; margin: 15px auto; display: flex; justify-content: center; align-items: center; }
+    .wheel-canvas { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 35px rgba(255,255,255,0.15); transition: transform 4s cubic-bezier(0.1, 0.99, 0.1, 0.99); }
+    .wheel-pointer {
+      position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+      width: 0; height: 0; border-top: 12px solid transparent; border-bottom: 12px solid transparent; border-right: 22px solid #ffffff; filter: drop-shadow(0 0 8px #fff); z-index: 15;
+    }
+    .timer-text { font-size: 13px; font-weight: 700; color: #38bdf8; text-align: center; margin-top: 6px; }
+
+    .styles-list, .favs-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+    .style-card {
+      background: rgba(25, 25, 32, 0.65); border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 16px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+    }
+    .style-card.selected { border-color: #10b981; background: rgba(16, 185, 129, 0.1); }
+    .style-card .check-mark { display: none; color: #10b981; font-weight: 900; font-size: 16px; }
+    .style-card.selected .check-mark { display: block; }
+
+    .fav-item {
+      background: rgba(25, 25, 32, 0.65); border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 16px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; color: white; font-weight: 700; cursor: pointer;
+    }
+    .advent-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 15px; width: 100%; }
+    .advent-day {
+      aspect-ratio: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; cursor: pointer; color: white;
+    }
+    .advent-day.opened { background: rgba(16, 185, 129, 0.18); border-color: #10b981; color: #10b981; }
+    .advent-day.locked { opacity: 0.4; }
+
+    .earning-banners { display: flex; flex-direction: column; gap: 16px; }
+    .banner-card {
+      width: 100%; aspect-ratio: 16 / 9; border-radius: 20px; position: relative; overflow: hidden; cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .banner-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+    .banner-overlay {
+      position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, rgba(0,0,0,0.85));
+      display: flex; align-items: flex-end; padding: 16px; font-weight: 800; font-size: 16px; color: white; z-index: 1;
+    }
+
+    .action-card {
+      width: 100%; height: 75px; border-radius: 20px; position: relative; overflow: hidden; cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(20, 20, 28, 0.85); backdrop-filter: blur(16px);
+      display: flex; align-items: center; padding: 0 20px; font-weight: 800; font-size: 16px; color: white;
+    }
+    
+    .link-box { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px; font-size: 13px; color: #38bdf8; word-break: break-all; text-align: center; margin-bottom: 15px; }
+
+    .shop-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px; }
+    .shop-item { display: flex; justify-content: space-between; align-items: center; background: rgba(25, 25, 35, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 14px 18px; cursor: pointer; transition: 0.2s; }
+    .shop-item:active { transform: scale(0.98); background: rgba(40, 40, 55, 0.9); }
+    .shop-attempts { font-weight: 800; font-size: 15px; color: #fff; }
+    .shop-price { font-weight: 800; font-size: 15px; color: #fbbf24; display: flex; align-items: center; gap: 4px; }
+  </style>
+</head>
+<body>
+  <script>
+    const CONFIG = {
+      telegramChannelUrl: "https://t.me/MikuKorpor",
+      tiktokChannelUrl: "https://www.tiktok.com/@mik.korp",
+      images: {
+        backgroundBlur: "https://i.ibb.co/Z12NsrT4/dm9ncktrfx0n26c9s0-result-0.png",
+        splashScreen: "https://i.ibb.co/vKP9C6R/photo-2026-10-20-14-48-38-edited.png",
+        adventBanner: "https://i.ibb.co/9mbmFc2F/dm9nh7r2mbmkjt5oqu-result-0.png",
+        wheelBanner: "https://i.ibb.co/jkGHN2rq/dm9ng2yw7z7mm1fedj-result-0.png",
+        slides: [
+          "https://i.ibb.co/7NNkg22F/image.png",
+          "https://i.ibb.co/PsRW89wx/image.png",
+          "https://i.ibb.co/4wMSwQ51/image.png"
+        ]
+      }
+    };
+  </script>
+
+  <!-- Окно подписки -->
+  <div class="sub-gate-overlay" id="sub-gate-modal" style="display: none;">
+    <h2 style="font-size: 22px; font-weight: 900; margin-bottom: 10px;">ПОДПИСКА ОБЯЗАТЕЛЬНА</h2>
+    <p style="font-size: 14px; color: #9ca3af; margin-bottom: 24px; max-width: 280px;">Подпишитесь на наш Telegram-канал, чтобы открыть доступ к боту!</p>
+    <button class="btn-main btn-dark-solid" style="background: #38bdf8; color: #000; margin-bottom: 12px;" onclick="openExternalLink(CONFIG.telegramChannelUrl)">📢 Подписаться</button>
+    <button class="btn-main btn-dark-subtle" onclick="checkSubscription()">🔄 Проверить подписку</button>
+  </div>
+
+  <!-- Модалка фидбека -->
+  <div class="modal-overlay" id="feedback-modal">
+    <div class="modal-box" style="align-items: center;">
+      <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 5px;">Жалобы и предложения</h3>
+      <p style="font-size: 12px; color: #9ca3af; text-align: center; margin-bottom: 10px;">Напишите разработчику. Он ответит вам в ЛС!</p>
+      <textarea class="modal-textarea" id="feedback-input" placeholder="Ваше сообщение..."></textarea>
+      <button class="btn-main btn-dark-solid" style="margin-top: 5px;" onclick="submitFeedback()">Отправить</button>
+      <button class="btn-main btn-dark-subtle" onclick="closeFeedbackModal()">Отмена</button>
+    </div>
+  </div>
+
+  <!-- РАСШИРЕННАЯ АДМИН-ПАНЕЛЬ -->
+  <div class="modal-overlay" id="admin-modal">
+    <div class="modal-box">
+      <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 10px; text-align: center;">⚙️ Расширенная Админка</h3>
+      <div id="admin-stats-text" style="font-size: 12px; color: #9ca3af; margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 8px; border-radius: 8px;">Загрузка статистики...</div>
+      
+      <div style="font-size: 13px; font-weight: 700; margin-bottom: 4px;">➕ Добавить юзернейм в пул</div>
+      <input type="text" id="admin-new-uname" class="admin-input" placeholder="username (без @)">
+      <select id="admin-new-style" class="admin-select">
+        <option value="classic">Классический</option>
+        <option value="cyber">Кибер</option>
+        <option value="premium">Премиум</option>
+      </select>
+      <button class="btn-main btn-dark-solid" onclick="adminAddUsername()">Добавить в базу</button>
+
+      <div style="font-size: 13px; font-weight: 700; margin: 10px 0 4px 0;">⚡ Управление попытками игрока</div>
+      <input type="text" id="admin-target-id" class="admin-input" placeholder="Telegram User ID (пусто = ВСЕМ)">
+      <input type="number" id="admin-attempts-val" class="admin-input" placeholder="Количество попыток" value="5">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button class="btn-main btn-dark-solid" style="margin:0;" onclick="adminGiveAttempts('attempts', 'give')">Выдать</button>
+        <button class="btn-main btn-danger" style="margin:0;" onclick="adminGiveAttempts('attempts', 'take')">Забрать</button>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 700; margin: 12px 0 4px 0;">🎁 Массовые акции</div>
+      <button class="btn-main btn-dark-subtle" style="margin-bottom: 6px;" onclick="adminAction('advent', 'reset_all')">Сбросить адвент ВСЕМ</button>
+      <button class="btn-main btn-dark-subtle" style="margin-bottom: 10px;" onclick="adminAction('wheel', 'give_spin_all')">Дать +1 спин колеса ВСЕМ</button>
+
+      <button class="btn-main btn-danger" onclick="closeAdminModal()">Закрыть панель</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    
+    <!-- Экран загрузки с картинкой src -->
+    <div id="screen-splash">
+      <img id="splash-img-tag" class="splash-bg" src="" alt="Splash">
+      <div class="loader-container"><div class="loader-bar" id="loader-bar"></div></div>
+    </div>
+
+    <!-- Основной фон src -->
+    <div class="bg-img-container">
+      <img id="bg-img-tag" src="" alt="Background">
+    </div>
+
+    <!-- Главная -->
+    <div id="screen-main" class="screen">
+      <div class="top-app-title">MIKU SEARCH</div>
+
+      <div class="slider-wrapper" id="slider-wrapper">
+        <div class="slider-dots" id="slider-dots">
+          <div class="slider-dot active" onclick="goToSlide(0)"></div>
+          <div class="slider-dot" onclick="goToSlide(1)"></div>
+          <div class="slider-dot" onclick="goToSlide(2)"></div>
+        </div>
+        <div class="promo-slider" id="promo-slider">
+          <div class="slides-track" id="slides-track">
+            <div class="slide-item"><img id="slide-img-0" src="" alt="Slide 1"></div>
+            <div class="slide-item"><img id="slide-img-1" src="" alt="Slide 2"></div>
+            <div class="slide-item"><img id="slide-img-2" src="" alt="Slide 3"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-container">
+        <button class="card card-large" onclick="startSearchFlow()">
+          <svg class="mono-icon" style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <span>Начать поиск</span>
+        </button>
+
+        <div class="grid-row">
+          <button class="card card-square" onclick="navTo('screen-styles', true)">
+            <svg class="mono-icon" style="width:22px;height:22px;" viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61.43.53 1.03.89 1.7.89h2.33c.83 0 1.5-.67 1.5-1.5 0-.41-.17-.79-.44-1.06-.28-.28-.44-.65-.44-1.06 0-.83.67-1.5 1.5-1.5h1.88c3.31 0 6-2.69 6-6 0-3.87-3.13-7-7-7z"/></svg>
+            <span>Стили</span>
+          </button>
+          <button class="card card-square" onclick="navTo('screen-favs', true)">
+            <svg class="mono-icon" style="width:22px;height:22px;" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            <span>Избранное (<span id="fav-count">0</span>/25)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Результат -->
+    <div id="screen-generator" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-main', false)">← Назад</button>
+        <span style="font-weight: 800; font-size: 15px;">Результат поиска</span>
+        <div style="width: 60px;"></div>
+      </div>
+      <div class="gen-center-body">
+        <div class="username-box">
+          <div class="generated-username" id="display-username">@username</div>
+          <div class="status-badge free" id="status-badge">✓ Свободен</div>
+        </div>
+      </div>
+      <div>
+        <button class="btn-main btn-dark-solid" onclick="copyActiveUsername()">📋 Скопировать</button>
+        <button class="btn-main btn-dark-subtle" onclick="generateUsername()">🔄 Сгенерировать (<span id="attempts-count">5</span>)</button>
+        <button class="btn-main btn-dark-subtle" id="btn-fav-action" onclick="toggleCurrentFav()">⭐ В избранное</button>
+      </div>
+    </div>
+
+    <!-- Стили -->
+    <div id="screen-styles" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-main', false)">← Назад</button>
+        <span style="font-weight: 800;">Стили</span>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="styles-list">
+        <div class="style-card selected" id="card-style-classic" onclick="selectStyle('classic')">
+          <span>1. Классический (Строгие ники)</span>
+          <span class="check-mark">✓</span>
+        </div>
+        <div class="style-card" id="card-style-cyber" onclick="selectStyle('cyber')">
+          <span>2. Кибер (Gaming style)</span>
+          <span class="check-mark">✓</span>
+        </div>
+        <div class="style-card" id="card-style-premium" onclick="selectStyle('premium')">
+          <span>3. Премиум 👑 (Короткие ники)</span>
+          <span class="check-mark">✓</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Избранное -->
+    <div id="screen-favs" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-main', false)">← Назад</button>
+        <span style="font-weight: 800;">Избранное</span>
+        <div style="width:60px;"></div>
+      </div>
+      <div id="favs-container" class="favs-list"></div>
+    </div>
+
+    <!-- Профиль -->
+    <div id="screen-profile" class="screen">
+      <div class="top-app-title">Профиль</div>
+      
+      <div class="profile-header-area">
+        <button class="btn-admin-gear" id="btn-admin-gear" onclick="openAdminModal()">⚙️</button>
+        <div class="profile-avatar-container">
+          <img id="user-avatar-img" class="profile-avatar-img" src="" alt="Avatar">
+          <span id="user-avatar-letter" class="profile-avatar-letter">M</span>
+        </div>
+        <div class="profile-username" id="user-display-name">@username</div>
+        <div class="profile-user-id" id="user-display-id">ID: 000000000</div>
+      </div>
+
+      <div class="profile-buttons-grid">
+        <button class="profile-square-btn" onclick="openExternalLink(CONFIG.telegramChannelUrl)">
+          <svg class="mono-icon" style="width:28px; height:28px;" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+          <span class="profile-btn-title">ТГК "Miku-Korpor"</span>
+        </button>
+
+        <button class="profile-square-btn" onclick="openExternalLink(CONFIG.tiktokChannelUrl)">
+          <svg class="mono-icon" style="width:28px; height:28px;" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 1 1-5.2-1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V5.82a6.34 6.34 0 0 0-1-.08A6.34 6.34 0 1 0 15.7 12V8.34a8.27 8.27 0 0 0 4.89 1.58V6.47a4.86 4.86 0 0 1-1-.22z"/></svg>
+          <span class="profile-btn-title">ТТ "Miku-Korpor"</span>
+        </button>
+      </div>
+
+      <button class="feedback-banner-btn" onclick="openFeedbackModal()">
+        <span>✍️ Написать жалобу / предложения разработчикам</span>
+      </button>
+    </div>
+
+    <!-- Заработок -->
+    <div id="screen-earning" class="screen">
+      <div class="top-app-title">Заработок</div>
+      <div class="earning-banners">
+        <div class="banner-card" onclick="navTo('screen-advent', true)">
+          <img id="banner-img-advent" src="" alt="Advent">
+          <div class="banner-overlay">🎁 Адвент-календарь</div>
+        </div>
+        <div class="banner-card" onclick="navTo('screen-wheel', true)">
+          <img id="banner-img-wheel" src="" alt="Wheel">
+          <div class="banner-overlay">🎡 Колесо Фортуны</div>
+        </div>
+        <div class="action-card" onclick="navTo('screen-referral', true)">
+          <span>👥 Пригласи друга</span>
+        </div>
+        <div class="action-card" onclick="navTo('screen-shop', true)">
+          <span>⭐ Купить попытки</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ЭКРАН: Пригласи друга -->
+    <div id="screen-referral" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-earning', false)">← Назад</button>
+        <div class="rainbow-title">Пригласи друга</div>
+        <div style="width: 50px;"></div>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; text-align: center; margin-bottom: 12px;">Получай +2 попытки за каждого реально зашедшего друга!</p>
+      <div class="link-box" id="ref-link-box">Загрузка ссылки...</div>
+      <div class="timer-text" style="margin-bottom: 12px; color: #9ca3af;">Зашло друзей: <span id="ref-count-span" style="color:#fff;">0 из 1</span></div>
+      <button class="btn-main btn-dark-solid" onclick="shareRefLink()">👥 Пригласить</button>
+      <button class="btn-main btn-dark-subtle" onclick="claimRefReward()" style="margin-top: 10px;">🎁 Забрать награду (+2 попытки)</button>
+    </div>
+
+    <!-- ЭКРАН: Магазин попыток -->
+    <div id="screen-shop" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-earning', false)">← Назад</button>
+        <div class="rainbow-title">Купить попытки</div>
+        <div style="width: 50px;"></div>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; text-align: center; margin-bottom: 12px;">Оплата звездами Telegram (⭐)</p>
+      <div class="shop-grid" id="shop-container"></div>
+    </div>
+
+    <!-- Адвент -->
+    <div id="screen-advent" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-earning', false)">← Назад</button>
+        <div class="rainbow-title">Адвент-календарь</div>
+        <div style="width: 50px;"></div>
+      </div>
+      <div class="timer-text" id="advent-status-text" style="color: #9ca3af;">Забирайте подарок каждые 24 часа!</div>
+      <div class="advent-grid" id="advent-grid"></div>
+    </div>
+
+    <!-- Колесо -->
+    <div id="screen-wheel" class="screen">
+      <div class="screen-header">
+        <button class="btn-back" onclick="navTo('screen-earning', false)">← Назад</button>
+        <div class="rainbow-title">Колесо Фортуны</div>
+        <div style="width: 50px;"></div>
+      </div>
+      <div class="wheel-container">
+        <canvas id="wheelCanvas" class="wheel-canvas" width="300" height="300"></canvas>
+        <div class="wheel-pointer"></div>
+      </div>
+      <!-- ⏱️ Живой таймер над кнопкой -->
+      <div class="timer-text" id="wheel-timer-text" style="margin-bottom: 10px; font-weight:800; height:18px;"></div>
+      <button class="btn-main btn-dark-solid" id="btn-spin-wheel" onclick="spinWheel()">Крутить (<span id="wheel-status-btn">1</span>)</button>
+    </div>
+
+    <!-- Док-бар -->
+    <div class="dock-bar-wrapper" id="dock-bar">
+      <div class="dock-bar">
+        <button class="dock-item" onclick="switchTab('screen-earning', this)">
+          <svg class="mono-icon" viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1H6.32c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4"/></svg>
+          <span>Заработок</span>
+        </button>
+        <button class="dock-item active" onclick="switchTab('screen-main', this)">
+          <svg class="mono-icon" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          <span>Главная</span>
+        </button>
+        <button class="dock-item" onclick="switchTab('screen-profile', this)">
+          <svg class="mono-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          <span>Профиль</span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    let currentStyle = 'classic';
+    let favorites = [];
+    let serverData = {};
+    let wheelDeg = 0;
+    let currentSlideIndex = 0;
+    let autoSlideInterval = null;
+    let liveTimerInterval = null;
+
+    const segments = ['+1', '+3', 'Пусто', '+2 Спина', '👑 Прем', '🎁 Адвент', '+2', '-1'];
+    const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#8b00ff', '#ff007f'];
+
+    const shopPackages = [
+      { id: 1, attempts: 5, price: 5 },
+      { id: 2, attempts: 15, price: 12 },
+      { id: 3, attempts: 30, price: 22 },
+      { id: 4, attempts: 50, price: 35 },
+      { id: 5, attempts: 100, price: 60 },
+      { id: 6, attempts: 200, price: 110 },
+      { id: 7, attempts: 300, price: 150 },
+      { id: 8, attempts: 500, price: 240 },
+      { id: 9, attempts: 1000, price: 450 },
+      { id: 10, attempts: 5000, price: 2000 }
+    ];
+
+    function showToast(text) {
+      let old = document.getElementById('fast-toast');
+      if (old) old.remove();
+      let toast = document.createElement('div');
+      toast.id = 'fast-toast';
+      toast.innerText = text;
+      toast.style.cssText = "position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(20,20,28,0.95); border:1px solid rgba(255,255,255,0.2); color:#fff; padding:10px 18px; border-radius:12px; font-size:13px; font-weight:700; z-index:9999; box-shadow:0 5px 20px rgba(0,0,0,0.5); transition:opacity 0.2s; text-align:center;";
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, 2200);
+    }
+
+    function formatMsToTime(ms) {
+      if (ms <= 0) return "00:00:00";
+      let totalSec = Math.floor(ms / 1000);
+      let hrs = Math.floor(totalSec / 3600);
+      let mins = Math.floor((totalSec % 3600) / 60);
+      let secs = totalSec % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function startLiveTimers() {
+      if (liveTimerInterval) clearInterval(liveTimerInterval);
+      liveTimerInterval = setInterval(() => {
+        // Таймер колеса
+        if (serverData.wheelTimeLeft > 0) {
+          serverData.wheelTimeLeft -= 1000;
+          document.getElementById('wheel-timer-text').innerText = `Следующая попытка через: ${formatMsToTime(serverData.wheelTimeLeft)}`;
+        } else {
+          document.getElementById('wheel-timer-text').innerText = "";
+        }
+
+        // Таймер адвента
+        if (serverData.adventTimeLeft > 0) {
+          serverData.adventTimeLeft -= 1000;
+        }
+      }, 1000);
+    }
+
+    function applyConfigImages() {
+      document.getElementById('bg-img-tag').src = CONFIG.images.backgroundBlur;
+      document.getElementById('splash-img-tag').src = CONFIG.images.splashScreen;
+      document.getElementById('slide-img-0').src = CONFIG.images.slides[0];
+      document.getElementById('slide-img-1').src = CONFIG.images.slides[1];
+      document.getElementById('slide-img-2').src = CONFIG.images.slides[2];
+      document.getElementById('banner-img-advent').src = CONFIG.images.adventBanner;
+      document.getElementById('banner-img-wheel').src = CONFIG.images.wheelBanner;
+    }
+
+    async function checkSubscription() {
+      try {
+        const res = await fetch('/api/check-subscription', { headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+        const data = await res.json();
+        if (data.subscribed) {
+          document.getElementById('sub-gate-modal').style.display = 'none';
+          syncUserData();
+          checkReferralParam();
+        } else {
+          document.getElementById('sub-gate-modal').style.display = 'flex';
+        }
+      } catch (e) { syncUserData(); }
+    }
+
+    async function checkReferralParam() {
+      const startParam = tg?.initDataUnsafe?.start_param;
+      if (startParam && startParam.startsWith('ref_')) {
+        const inviterId = startParam.replace('ref_', '');
+        try {
+          await fetch('/api/register-ref', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+            body: JSON.stringify({ inviterId })
+          });
+        } catch(e) {}
+      }
+    }
+
+    async function syncUserData() {
+      try {
+        const res = await fetch('/api/user-data', { headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+        serverData = await res.json();
+        
+        if (serverData.isAdmin) {
+          document.getElementById('btn-admin-gear').style.display = 'flex';
+        }
+
+        const userObj = tg?.initDataUnsafe?.user;
+        const uname = userObj?.username ? `@${userObj.username}` : (userObj?.first_name || 'Пользователь');
+        document.getElementById('user-display-name').innerText = uname;
+        document.getElementById('user-display-id').innerText = `ID: ${serverData.userId || '000000000'}`;
+
+        if (userObj?.photo_url) {
+          const img = document.getElementById('user-avatar-img');
+          img.src = userObj.photo_url;
+          img.style.display = 'block';
+          document.getElementById('user-avatar-letter').style.display = 'none';
+        } else {
+          document.getElementById('user-avatar-letter').innerText = uname.replace('@','')[0].toUpperCase();
+          document.getElementById('user-avatar-letter').style.display = 'block';
+        }
+
+        favorites = serverData.favorites || [];
+        document.getElementById('fav-count').innerText = favorites.length;
+        document.getElementById('attempts-count').innerText = serverData.attempts;
+
+        document.getElementById('wheel-status-btn').innerText = serverData.wheelSpinsLeft;
+
+        const botName = serverData.botUsername || 'MikuSearchBot';
+        const refLink = `https://t.me/${botName}?start=ref_${serverData.userId}`;
+        document.getElementById('ref-link-box').innerText = refLink;
+        document.getElementById('ref-count-span').innerText = `${serverData.referralCount || 0} из 1`;
+
+        startLiveTimers();
+        renderShop();
+        renderFavoritesList();
+        renderAdvent();
+      } catch (e) {}
+    }
+
+    function renderShop() {
+      const container = document.getElementById('shop-container');
+      if (!container) return;
+      container.innerHTML = '';
+      shopPackages.forEach(pkg => {
+        const item = document.createElement('div');
+        item.className = 'shop-item';
+        item.innerHTML = `
+          <div class="shop-attempts">⚡ ${pkg.attempts} попыток</div>
+          <div class="shop-price">${pkg.price} ⭐</div>
+        `;
+        item.onclick = () => buyPackage(pkg);
+        container.appendChild(item);
+      });
+    }
+
+    async function buyPackage(pkg) {
+      try {
+        const res = await fetch('/api/create-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+          body: JSON.stringify({ packageId: pkg.id, attempts: pkg.attempts, price: pkg.price })
+        });
+        const data = await res.json();
+        if (data.success && data.invoiceLink) {
+          if (tg?.openInvoice) {
+            tg.openInvoice(data.invoiceLink, async (status) => {
+              if (status === 'paid') {
+                showToast('✅ Оплата прошла успешно!');
+                syncUserData();
+              }
+            });
+          } else {
+            window.open(data.invoiceLink, '_blank');
+          }
+        }
+      } catch(e) {}
+    }
+
+    function shareRefLink() {
+      const link = document.getElementById('ref-link-box').innerText;
+      const text = encodeURIComponent("Заходи в бот для поиска свободных Telegram юзернеймов!");
+      openExternalLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${text}`);
+    }
+
+    async function claimRefReward() {
+      const res = await fetch('/api/claim-ref', { method: 'POST', headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+      const d = await res.json();
+      if (d.success) { showToast('🎁 Получено +2 попытки!'); syncUserData(); }
+      else { showToast(d.error || 'Недоступно'); }
+    }
+
+    function openExternalLink(url) {
+      if (tg?.openTelegramLink && url.includes('t.me')) {
+        tg.openTelegramLink(url);
+      } else if (tg?.openLink) {
+        tg.openLink(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    }
+
+    function drawWheel() {
+      const canvas = document.getElementById('wheelCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = 300 * dpr; canvas.height = 300 * dpr;
+      ctx.scale(dpr, dpr);
+
+      const num = segments.length;
+      const angle = (2 * Math.PI) / num;
+      ctx.clearRect(0, 0, 300, 300);
+
+      for (let i = 0; i < num; i++) {
+        ctx.beginPath();
+        ctx.fillStyle = colors[i];
+        ctx.moveTo(150, 150);
+        ctx.arc(150, 150, 142, i * angle, (i + 1) * angle);
+        ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)'; ctx.stroke();
+
+        ctx.save();
+        ctx.translate(150, 150);
+        ctx.rotate(i * angle + angle / 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px -apple-system, sans-serif';
+        ctx.fillText(segments[i], 55, 4);
+        ctx.restore();
+      }
+
+      ctx.beginPath(); ctx.arc(150, 150, 24, 0, 2 * Math.PI);
+      ctx.fillStyle = '#08080a'; ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+    }
+
+    async function spinWheel() {
+      if (serverData.wheelSpinsLeft <= 0 && !serverData.isAdmin) {
+        showToast(`⏳ Следующая попытка через: ${formatMsToTime(serverData.wheelTimeLeft || 0)}`);
+        return;
+      }
+      const btn = document.getElementById('btn-spin-wheel');
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/wheel/spin', { method: 'POST', headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+        const d = await res.json();
+        if (!d.success) { showToast(d.error || 'Ошибка'); btn.disabled = false; return; }
+
+        const canvas = document.getElementById('wheelCanvas');
+        const segAngle = 360 / segments.length;
+        const targetDeg = (360 - (d.segment * segAngle + segAngle / 2));
+        wheelDeg += 3600 + (targetDeg - (wheelDeg % 360));
+        canvas.style.transform = `rotate(${wheelDeg}deg)`;
+
+        setTimeout(() => {
+          showToast(`🎉 Награда: ${segments[d.segment]}`);
+          btn.disabled = false;
+          syncUserData();
+        }, 4200);
+      } catch(e) { btn.disabled = false; }
+    }
+
+    function initSlider() {
+      const slider = document.getElementById('promo-slider');
+      let startX = 0;
+      
+      slider.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
+      slider.addEventListener('touchmove', e => {
+        let diffX = Math.abs(e.touches[0].clientX - startX);
+        if (diffX > 10) e.preventDefault();
+      }, { passive: false });
+
+      slider.addEventListener('touchend', e => {
+        let diff = e.changedTouches[0].clientX - startX;
+        if (Math.abs(diff) > 40) {
+          if (diff > 0) goToSlide((currentSlideIndex - 1 + 3) % 3);
+          else goToSlide((currentSlideIndex + 1) % 3);
+        }
+      });
+
+      if (autoSlideInterval) clearInterval(autoSlideInterval);
+      autoSlideInterval = setInterval(() => {
+        goToSlide((currentSlideIndex + 1) % 3);
+      }, 60000);
+    }
+
+    function goToSlide(idx) {
+      currentSlideIndex = idx;
+      const track = document.getElementById('slides-track');
+      if (track) track.style.transform = `translateX(-${currentSlideIndex * 33.3333}%)`;
+      const dots = document.querySelectorAll('.slider-dot');
+      dots.forEach((dot, i) => {
+        if (i === currentSlideIndex) dot.classList.add('active');
+        else dot.classList.remove('active');
+      });
+    }
+
+    function navTo(screenId, isSubScreen = false) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+      const dock = document.getElementById('dock-bar');
+      if (isSubScreen) dock.classList.add('hidden');
+      else dock.classList.remove('hidden');
+    }
+
+    function switchTab(screenId, el) {
+      document.querySelectorAll('.dock-item').forEach(i => i.classList.remove('active'));
+      if (el) el.classList.add('active');
+      navTo(screenId, false);
+    }
+
+    function startSearchFlow() {
+      navTo('screen-generator', true);
+      generateUsername();
+    }
+
+    async function generateUsername() {
+      const display = document.getElementById('display-username');
+      display.innerText = 'Поиск...';
+      try {
+        const res = await fetch(`/api/generate?style=${currentStyle}`, { headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+        const d = await res.json();
+        if (d.error) { display.innerText = '@limit'; showToast('⚠️ ' + d.error); return; }
+        display.innerText = '@' + d.username;
+        updateFavButtonState();
+        syncUserData();
+      } catch (e) { display.innerText = '@miku_user'; }
+    }
+
+    function selectStyle(st) {
+      currentStyle = st;
+      document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected'));
+      document.getElementById(`card-style-${st}`).classList.add('selected');
+      navTo('screen-main', false);
+    }
+
+    function copyActiveUsername() {
+      const uname = document.getElementById('display-username').innerText;
+      navigator.clipboard.writeText(uname);
+      showToast(`📋 Скопировано: ${uname}`);
+    }
+
+    function updateFavButtonState() {
+      const uname = document.getElementById('display-username').innerText.replace('@', '');
+      const btn = document.getElementById('btn-fav-action');
+      if (favorites.includes(uname)) {
+        btn.innerText = '★ В избранном';
+        btn.className = 'btn-main btn-success';
+      } else {
+        btn.innerText = '⭐ В избранное';
+        btn.className = 'btn-main btn-dark-subtle';
+      }
+    }
+
+    async function toggleCurrentFav() {
+      const uname = document.getElementById('display-username').innerText.replace('@', '');
+      const isFav = favorites.includes(uname);
+      const endpoint = isFav ? '/api/favorites/remove' : '/api/favorites/add';
+      
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ username: uname })
+      });
+      const d = await res.json();
+      if (d.success) {
+        favorites = d.favorites;
+        document.getElementById('fav-count').innerText = favorites.length;
+        updateFavButtonState();
+        renderFavoritesList();
+      }
+    }
+
+    function renderFavoritesList() {
+      const container = document.getElementById('favs-container');
+      if (!container) return;
+      container.innerHTML = '';
+      if (favorites.length === 0) {
+        container.innerHTML = '<div style="color: #9ca3af; text-align: center; margin-top: 30px;">Пусто в избранном</div>';
+        return;
+      }
+      favorites.forEach(uname => {
+        const item = document.createElement('div');
+        item.className = 'fav-item';
+        item.innerHTML = `<span>@${uname}</span> <span style="color:#ef4444; font-size:12px; cursor:pointer;" onclick="removeFav('${uname}')">Удалить</span>`;
+        container.appendChild(item);
+      });
+    }
+
+    async function removeFav(uname) {
+      const res = await fetch('/api/favorites/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ username: uname })
+      });
+      const d = await res.json();
+      if (d.success) {
+        favorites = d.favorites;
+        document.getElementById('fav-count').innerText = favorites.length;
+        renderFavoritesList();
+      }
+    }
+
+    function renderAdvent() {
+      const grid = document.getElementById('advent-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      const opened = serverData.adventOpened || 0;
+      for (let i = 1; i <= 25; i++) {
+        const box = document.createElement('div');
+        box.className = 'advent-day';
+        if (i <= opened) {
+          box.classList.add('opened'); box.innerText = `День ${i}\n✓`;
+        } else if (i === opened + 1) {
+          box.innerText = `День ${i}`;
+          box.onclick = async () => {
+            if (serverData.adventTimeLeft > 0) {
+              showToast(`🔒 День ${i} станет доступен через: ${formatMsToTime(serverData.adventTimeLeft)}`);
+              return;
+            }
+            const res = await fetch('/api/advent/claim', { method: 'POST', headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+            const d = await res.json();
+            if (d.success) { showToast(`🎁 +${d.reward} попыток!`); syncUserData(); }
+            else { showToast(d.error || 'Таймер еще не истек!'); }
+          };
+        } else {
+          box.classList.add('locked'); box.innerText = `День ${i}`;
+          // ⏱️ Моментальный вывод живого таймера обратного отсчета
+          box.onclick = () => {
+            if (serverData.adventTimeLeft > 0) {
+              showToast(`🔒 День ${i} станет доступен через: ${formatMsToTime(serverData.adventTimeLeft)}`);
+            } else {
+              showToast(`🔒 День ${i} открывается строго по порядку!`);
+            }
+          };
+        }
+        grid.appendChild(box);
+      }
+    }
+
+    function openFeedbackModal() { document.getElementById('feedback-modal').classList.add('active'); }
+    function closeFeedbackModal() { document.getElementById('feedback-modal').classList.remove('active'); }
+    
+    async function submitFeedback() {
+      const text = document.getElementById('feedback-input').value;
+      if (!text.trim()) { showToast('Введите сообщение'); return; }
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ message: text })
+      });
+      const d = await res.json();
+      if (d.success) {
+        showToast('✅ Отправлено разработчику!');
+        document.getElementById('feedback-input').value = '';
+        closeFeedbackModal();
+      }
+    }
+
+    async function openAdminModal() {
+      document.getElementById('admin-modal').classList.add('active');
+      try {
+        const res = await fetch('/api/admin/stats', { headers: { 'X-Telegram-Init-Data': tg?.initData || '' } });
+        const d = await res.json();
+        let poolText = Object.entries(d.poolStats || {}).map(([st, count]) => `${st}: ${count}`).join(' | ');
+        document.getElementById('admin-stats-text').innerHTML = `👥 Пользователей: <b>${d.totalUsers}</b><br>📦 Пунты ников: [ ${poolText || 'пусто'} ]`;
+      } catch(e) {}
+    }
+    function closeAdminModal() { document.getElementById('admin-modal').classList.remove('active'); }
+
+    async function adminAddUsername() {
+      const uname = document.getElementById('admin-new-uname').value.trim();
+      const style = document.getElementById('admin-new-style').value;
+      if (!uname) { showToast('Введите юзернейм!'); return; }
+
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ action: 'add_username', username: uname, style: style })
+      });
+      const d = await res.json();
+      if (d.success) {
+        showToast(`✅ Юзернейм @${uname} (${style}) добавлен!`);
+        document.getElementById('admin-new-uname').value = '';
+        openAdminModal();
+      }
+    }
+
+    async function adminGiveAttempts(actionType, subType) {
+      const targetId = document.getElementById('admin-target-id').value.trim();
+      const val = parseInt(document.getElementById('admin-attempts-val').value) || 5;
+
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ action: actionType, subAction: subType, targetUserId: targetId, value: val })
+      });
+      const d = await res.json();
+      if (d.success) {
+        showToast('⚡ Попытки успешно обновлены!');
+        openAdminModal();
+      }
+    }
+
+    async function adminAction(action, subAction) {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+        body: JSON.stringify({ action, subAction })
+      });
+      const d = await res.json();
+      if (d.success) {
+        showToast('⚡ Действие выполнено успешно!');
+        openAdminModal();
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      applyConfigImages();
+      initSlider();
+      drawWheel();
+      checkSubscription();
+
+      let progress = 0;
+      const loaderInterval = setInterval(() => {
+        progress += 4;
+        document.getElementById('loader-bar').style.width = progress + '%';
+        
+        if (progress >= 100) {
+          clearInterval(loaderInterval);
+          const splash = document.getElementById('screen-splash');
+          splash.style.opacity = '0';
+          setTimeout(() => {
+            splash.style.display = 'none';
+            document.getElementById('screen-main').classList.add('active');
+          }, 300);
+        }
+      }, 30);
+    });
+  </script>
+</body>
+</html>
